@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 void printBoard(char board[][26],int n);
-bool legalPosition(char board[][26], char row, char column, char color, int n);
+bool legalPosition(char board[][26], char row, char column, char color, int n,int directions[]);
 bool checkLegalInDirection(char board[][26], int n, char row, char col, char color, int deltaRow, int deltaCol);
 bool positionInBounds(int n, char row, char col);
 void flipPiecesInDirection(char board[][26], char row, char col, char color, int deltaRow, int deltaCol);
@@ -20,8 +20,9 @@ int main(int argc, char **argv)
 	scanf("%d",&boardSize);
 	char board[26][26];
 	
-	for(int i=0;i<boardSize;i++){
-		for(int j=0;j<boardSize;j++){
+	int i,j;
+	for( i=0;i<boardSize;i++){
+		for(j=0;j<boardSize;j++){
 			board[i][j] = 'U';
 		}
 	}
@@ -60,9 +61,19 @@ int main(int argc, char **argv)
 			printf("\nEnter move for colour %c (RowCol): ",turn);
 			scanf("%*c%c%c",&row,&col);
 			
-			validMove = legalPosition(board,row,col,turn,boardSize);
+			int directions[16] = {0};
+			validMove = legalPosition(board,row,col,turn,boardSize,directions);
+			
+			int i;
+	
+			for(i =0;i<16;i+=2){
+				if(directions[i] != 0 || directions[i+1] != 0){
+					flipPiecesInDirection(board, row,col,turn,directions[i],directions[i+1]);
+				}
+			}
+			
 			if(!validMove){
-				printf("\nInvalid Move");
+				printf("Invalid Move");
 			}
 			else{
 				printBoard(board,boardSize);
@@ -79,11 +90,11 @@ int main(int argc, char **argv)
 				turn = 'B';
 			}
 			else if(turn == 'B' && availMvsBlack){
-				printf("W player has no valid move.");
+				printf("\nW player has no valid move.");
 				turn = 'B';
 			}
 			else if(turn == 'W' && availMvsWhite){
-				printf("B player has no valid move.");
+				printf("\nB player has no valid move.");
 				turn = 'W';
 			}
 			else{
@@ -96,8 +107,9 @@ int main(int argc, char **argv)
 	if(validMove){
 		int blackPieces = 0;
 		int whitePieces = 0;
-		for(int i = 0;i<boardSize;i++){
-			for(int j = 0;j<boardSize;j++){
+		int i,j;
+		for( i = 0;i<boardSize;i++){
+			for(j = 0;j<boardSize;j++){
 				if(board[i][j] == 'W'){
 					whitePieces++;
 				}
@@ -198,7 +210,7 @@ bool checkLegalInDirection(char board[][26], int n, char row, char col, char col
 	}while(positionInBounds(n, newRow, newCol));
 }
 
-bool legalPosition(char board[][26], char row, char column, char color,int n){
+bool legalPosition(char board[][26], char row, char column, char color,int n,int directions[]){
 	int rowNum = row - 'a';
 	int colNum = column - 'a';
 	
@@ -206,27 +218,31 @@ bool legalPosition(char board[][26], char row, char column, char color,int n){
 		return false;
 	}
 	
-	bool piecesFlipped = false;
-	int directions[16] = {0};
+	bool legal = false;
 	int counter = 0;
 	
-	for(int k = -1;k<2;k++){
-		for(int l = -1;l<2;l++){
+	int k,l;
+	for(k = -1;k<2;k++){
+		for(l = -1;l<2;l++){
 			if(checkLegalInDirection(board,n,row,column,color,k,l)){
 				directions[counter] = k;
 				directions[counter+1] = l;
 				counter+=2;
-				piecesFlipped = true;
+				legal = true;
 			}
 		}
 	}
-	for(int i =0;i<16;i+=2){
+	/*
+	int i;
+	
+	for(i =0;i<16;i+=2){
 		if(directions[i] != 0 || directions[i+1] != 0){
 			flipPiecesInDirection(board, row,column,color,directions[i],directions[i+1]);
 		}
 	}
+	 */
 	
-	if(piecesFlipped){
+	if(legal){
 		return true;
 	}
 	else{
@@ -238,31 +254,30 @@ void printBoard(char board[][26],int n){
 	
 	printf("  ");
 	int Letter = 97;
-	for(int i = 0;i<n;i++){
+	int i,j;
+	for(i = 0;i<n;i++){
 		printf("%c",Letter);
 		Letter++;
 	}
 	
 	Letter -= n;
 	
-	for(int i = 0;i<n;i++){
+	for(i = 0;i<n;i++){
 		printf("\n%c ", Letter);
 		Letter++;
-		for(int j = 0;j<n;j++){
+		for(j = 0;j<n;j++){
 			printf("%c",board[i][j]);
 		}
 	}
 }
 
 bool availableMoves(char board[][26],int n,char color){
-	for(int i = 0; i<n;i++){
-		for(int j = 0; j<n;j++){
-			for(int k = -1;k<2;k++){
-				for(int l = -1;l<2;l++){
-					if(checkLegalInDirection(board,n,i+'a',j+'a',color,k,l)){
-						return true;
-					}
-				}
+	int i,j,k,l;
+	for(i = 0; i<n;i++){
+		for(j = 0; j<n;j++){
+			int directions[16] ={0};
+			if(legalPosition(board,i+'a',j+'a',color,n,directions)){
+				return true;
 			}
 		}
 	}
@@ -270,15 +285,15 @@ bool availableMoves(char board[][26],int n,char color){
 }
 
 void computerTurn(char color,char board[][26], int n){
-	int row1,col1,total1 = 0,row2,col2,total2 = 0;
+	int i,j,k,l,row1,col1,total1 = 0,row2,col2,total2 = 0;
 	
-	for(int i = 0; i<n;i++){
-		for(int j = 0; j<n;j++){
+	for(i = 0; i<n;i++){
+		for(j = 0; j<n;j++){
 			row2 = i;
 			col2 = j;
 			total2 = 0;
-			for(int k = -1;k<2;k++){
-				for(int l = -1;l<2;l++){
+			for(k = -1;k<2;k++){
+				for(l = -1;l<2;l++){
 					if(checkLegalInDirection(board,n,i+'a',j+'a',color,k,l)){
 						total2 += pointsInDirection(board,n,i+'a',j+'a',color,k,l);
 					}
@@ -292,7 +307,15 @@ void computerTurn(char color,char board[][26], int n){
 		}
 	}
 	//printf("\nCompTurn");
-	legalPosition(board,row1+'a',col1+'a',color,n);
+	int directions[16] = {0};
+	legalPosition(board,row1+'a',col1+'a',color,n,directions);
+	
+	for(i =0;i<16;i+=2){
+		if(directions[i] != 0 || directions[i+1] != 0){
+			flipPiecesInDirection(board, row1+'a',col1+'a',color,directions[i],directions[i+1]);
+		}
+	}
+	
 	printf("\nComputer places %c at %c%c\n",color,row1+'a',col1+'a');
 }
 
