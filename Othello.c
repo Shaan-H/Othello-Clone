@@ -1,17 +1,24 @@
 /* Author: Shaan Hudani
- * Description: Single Player Reversi against a simple opponent
+ * Description: Single Player Reversi against a fairly advanced opponent
  * */
 #include <stdio.h>
 #include <stdbool.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <math.h>
 
 void printBoard(char board[][26],int n);
-bool legalPosition(char board[][26], char row, char column, char color, int n,int directions[]);
+bool legalPosition(char board[][26], char row, char column, char color,int n,int directions[]);
 bool checkLegalInDirection(char board[][26], int n, char row, char col, char color, int deltaRow, int deltaCol);
 bool positionInBounds(int n, char row, char col);
 void flipPiecesInDirection(char board[][26], char row, char col, char color, int deltaRow, int deltaCol);
 bool availableMoves(char board[][26],int n,char color);
-void computerTurn(char color,char board[][26],int boardSize);
-int pointsInDirection(char board[][26], int n, char row, char col, char color, int deltaRow, int deltaCol);
+void computerTurn(char color,char board[][26], int n);
+void undoMove(char row, char col,char board[][26],int n);
+int alphaBetaLoop(char board[][26],int boardSize, char* row, char* col,int depth,bool maxingPlayer,char color,int alpha,int beta);
+
+struct rusage usage; // a structure to hold "resource usage" (including time)
+struct timeval start, end; // will hold the start and end times
 
 int main(int argc, char **argv)
 {
@@ -53,8 +60,21 @@ int main(int argc, char **argv)
 		char row, col;
 		
 		if(turn == compMove){
+			
+			getrusage(RUSAGE_SELF, &usage);
+			start = usage.ru_utime;
+			double timeStart = start.tv_sec + start.tv_usec / 1000000.0; // in seconds
+			
 			computerTurn(compMove,board,boardSize);
 			printBoard(board,boardSize);
+			
+			getrusage(RUSAGE_SELF, &usage);
+			end = usage.ru_utime;
+			double timeEnd = end.tv_sec +
+			end.tv_usec / 1000000.0; // in seconds
+			double totalTime = timeEnd - timeStart;
+			printf("\nTotal Time Taken by Comp: %lf",totalTime);
+			
 		}
 		//checks if it is the computer's Move
 		else{
@@ -65,12 +85,12 @@ int main(int argc, char **argv)
 			validMove = legalPosition(board,row,col,turn,boardSize,directions);
 			
 			int i;
-	
 			for(i =0;i<16;i+=2){
 				if(directions[i] != 0 || directions[i+1] != 0){
 					flipPiecesInDirection(board, row,col,turn,directions[i],directions[i+1]);
 				}
 			}
+			//flips all the legal directions of the square
 			
 			if(!validMove){
 				printf("Invalid Move");
@@ -90,11 +110,11 @@ int main(int argc, char **argv)
 				turn = 'B';
 			}
 			else if(turn == 'B' && availMvsBlack){
-				printf("\nW player has no valid move.");
+				printf("W player has no valid move.");
 				turn = 'B';
 			}
 			else if(turn == 'W' && availMvsWhite){
-				printf("\nB player has no valid move.");
+				printf("B player has no valid move.");
 				turn = 'W';
 			}
 			else{
@@ -144,7 +164,7 @@ int main(int argc, char **argv)
 }
 
 void flipPiecesInDirection(char board[][26], char row, char col, char color, int deltaRow, int deltaCol){
-	int rowNum = row-'a';
+	int rowNum = row - 'a';
 	int colNum = col - 'a';
 	do{
 		board[rowNum][colNum] = color;
@@ -207,7 +227,7 @@ bool checkLegalInDirection(char board[][26], int n, char row, char col, char col
 		newRowNum = newRow - 'a';
 		newColNum = newCol - 'a';
 		counter++;
-	}while(positionInBounds(n, newRow, newCol));
+	}while(true);
 }
 
 bool legalPosition(char board[][26], char row, char column, char color,int n,int directions[]){
@@ -272,10 +292,10 @@ void printBoard(char board[][26],int n){
 }
 
 bool availableMoves(char board[][26],int n,char color){
-	int i,j,k,l;
+	int i,j;
 	for(i = 0; i<n;i++){
 		for(j = 0; j<n;j++){
-			int directions[16] ={0};
+			int directions[16] = {0};
 			if(legalPosition(board,i+'a',j+'a',color,n,directions)){
 				return true;
 			}
@@ -285,49 +305,162 @@ bool availableMoves(char board[][26],int n,char color){
 }
 
 void computerTurn(char color,char board[][26], int n){
-	int i,j,k,l,row1,col1,total1 = 0,row2,col2,total2 = 0;
 	
-	for(i = 0; i<n;i++){
-		for(j = 0; j<n;j++){
-			row2 = i;
-			col2 = j;
-			total2 = 0;
-			for(k = -1;k<2;k++){
-				for(l = -1;l<2;l++){
-					if(checkLegalInDirection(board,n,i+'a',j+'a',color,k,l)){
-						total2 += pointsInDirection(board,n,i+'a',j+'a',color,k,l);
+	int depth = 200;
+	char row,col;
+	alphaBetaLoop(board,n,&row,&col,depth,true,color,-INFINITY,INFINITY);
+	
+	int directions[16] = {0};
+	legalPosition(board,row,col,color,n,directions);
+	
+	int i;
+	for(i =0;i<16;i+=2){
+		if(directions[i] != 0 || directions[i+1] != 0){
+			flipPiecesInDirection(board,row,col,color,directions[i],directions[i+1]);
+		}
+	}
+	
+	printf("\nComputer places %c at %c%c\n",color,row,col);
+}
+
+int alphaBetaLoop(char board[][26],int boardSize, char *row, char *col,int depth,bool maxingPlayer,char color,int alpha,int beta){
+	bool whiteMoves = availableMoves(board,boardSize,'W');
+	bool blackMoves = availableMoves(board,boardSize,'B');
+	if(depth == 0 || (!whiteMoves && !blackMoves)){
+		int blackPieces = 0;
+		int whitePieces = 0;
+		int i,j;
+		for( i = 0;i<boardSize;i++){
+			for(j = 0;j<boardSize;j++){
+				if(board[i][j] == 'W'){
+					whitePieces++;
+				}
+				else if(board[i][j] == 'B'){
+					blackPieces++;
+				}
+			}
+		}
+		if(color == 'W'){
+			return whitePieces - blackPieces;
+		}
+		else if(color == 'B'){
+			return blackPieces - whitePieces;
+		}
+	}
+	//checks if at the end node, if it is, then it returns the value of the board in the current state
+	
+	if(color == 'W' && !whiteMoves && maxingPlayer){
+		maxingPlayer = false;
+	}
+	else if(color == 'B' && !blackMoves && maxingPlayer){
+		maxingPlayer = false;
+	}
+	else if(color == 'W' && !blackMoves && !maxingPlayer){
+		maxingPlayer = true;
+	}
+	else if(color == 'B' && !whiteMoves && !maxingPlayer){
+		maxingPlayer = true;
+	}
+	//checks to see if the current player can actually play and switches the player if the current player has no moves
+	
+	if(maxingPlayer){
+		int value = -INFINITY;
+		
+		int i,j;
+		for(i = 0;i<boardSize;i++){
+			for(j = 0;j<boardSize;j++){
+				int directions[16] = {0};
+				if(legalPosition(board,i+'a',j+'a',color,boardSize,directions)){
+					char boardClone[26][26] = {0};
+					
+					int k,l;
+					for(k = 0;k<boardSize;k++){
+						for(l = 0;l<boardSize;l++){
+							boardClone[k][l] = board[k][l];
+						}
+					}
+					//copies the board to a temp board clone
+					
+					int m;
+					for(m =0;m<16;m+=2){
+						if(directions[m] != 0 || directions[m+1] != 0){
+							flipPiecesInDirection(boardClone, i + 'a',j + 'a',color,directions[m],directions[m+1]);
+						}
+					}
+					char row1,col1;
+					int score;
+					score = alphaBetaLoop(boardClone,boardSize,&row1,&col1,depth-1,false,color,alpha,beta);
+					
+					if(score>value){
+						value = score;
+						*row = i+'a';
+						*col = j +'a';
+					}
+					
+					if(value>alpha){
+						alpha = value;
+					}
+					
+					if(alpha>=beta){
+						goto RETURNING;
+					}
+				}
+				//checks if the board position is a child
+			}
+		}
+		RETURNING:return value;
+	}
+	else{
+		int value = INFINITY;
+		
+		char turnColor;
+		if(color == 'W'){
+			turnColor = 'B';
+		}
+		else{
+			turnColor = 'W';
+		}
+		
+		int i,j;
+		for(i = 0;i<boardSize;i++){
+			for(j = 0;j<boardSize;j++){
+				int directions[16] = {0};
+				if(legalPosition(board,i+'a',j+'a',turnColor,boardSize,directions)){
+					char boardClone[26][26] = {0};
+					
+					int k,l;
+					for(k = 0;k<boardSize;k++){
+						for(l = 0;l<boardSize;l++){
+							boardClone[k][l] = board[k][l];
+						}
+					}
+					//copies the board to a temp board clone
+					
+					int m;
+					for(m =0;m<16;m+=2){
+						if(directions[m] != 0 || directions[m+1] != 0){
+							flipPiecesInDirection(boardClone, i + 'a',j + 'a',turnColor,directions[m],directions[m+1]);
+						}
+					}
+					
+					char row1,col1;
+					int score;
+					score = alphaBetaLoop(boardClone,boardSize,&row1,&col1,depth-1,true,color,alpha,beta);
+					
+					if(score<value){
+						value = score;
+					}
+					
+					if(value<beta){
+						beta = value;
+					}
+					
+					if(alpha>=beta){
+						goto RETURNS;
 					}
 				}
 			}
-			if(total2>total1){
-				row1 = row2;
-				col1 = col2;
-				total1 = total2;
-			}
 		}
+		RETURNS: return value;
 	}
-	//printf("\nCompTurn");
-	int directions[16] = {0};
-	legalPosition(board,row1+'a',col1+'a',color,n,directions);
-	
-	for(i =0;i<16;i+=2){
-		if(directions[i] != 0 || directions[i+1] != 0){
-			flipPiecesInDirection(board, row1+'a',col1+'a',color,directions[i],directions[i+1]);
-		}
-	}
-	
-	printf("\nComputer places %c at %c%c\n",color,row1+'a',col1+'a');
-}
-
-int pointsInDirection(char board[][26], int n, char row, char col, char color, int deltaRow, int deltaCol){
-	int rowNum = row-'a';
-	int colNum = col - 'a';
-	int points = 0;
-	
-	while(board[rowNum][colNum] != color){
-		points++;
-		rowNum += deltaRow;
-		colNum += deltaCol;
-	}
-	return points;
 }
